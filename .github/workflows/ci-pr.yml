@@ -30,21 +30,18 @@ jobs:
       - name: Check JXA syntax
         run: |
           set -euo pipefail
+          # JXA scripts use ObjC bridge globals (ObjC, $, Application, delay, Path)
+          # that don't exist in standard JS. We use Node's --check with a shim
+          # that declares these globals so the parser can validate syntax.
+          shim='var ObjC={import:function(){}};var $=function(){return{stringByStandardizingPath:""}};var Application=function(){return{currentApplication:function(){return{includeStandardAdditions:true}},documents:function(){return[]},open:function(){},Document:function(){return{make:function(){return{}}}},Sheet:function(){return{}},Table:function(){return{}}}};var delay=function(){};var Path=function(){return""};'
           errors=0
           for f in scripts/*.js; do
             echo "Checking $f ..."
-            if ! osascript -l JavaScript -e "$(cat "$f")" -- --help >/dev/null 2>&1; then
-              # Try compile-only check: wrap in try/catch
-              if ! osascript -l JavaScript -e "
-                try {
-                  var _fn = $(cat "$f");
-                } catch(e) {
-                  // runtime errors are OK at parse stage
-                }
-              " 2>/dev/null; then
-                echo "::error file=$f::JXA syntax error in $f"
-                errors=$((errors + 1))
-              fi
+            # Strip shebang line, prepend shim, check syntax with Node
+            content=$(tail -n +2 "$f")
+            if ! node --check <(printf '%s\n%s' "$shim" "$content") 2>&1; then
+              echo "::error file=$f::Syntax error in $f"
+              errors=$((errors + 1))
             fi
           done
           if [ "$errors" -gt 0 ]; then
