@@ -3,6 +3,54 @@
 // List structure of an Apple Numbers spreadsheet (sheets, tables, dimensions)
 // Usage: osascript -l JavaScript list-structure.js "/path/to/file.numbers"
 
+ObjC.import("Foundation");
+
+function normalizePath(path) {
+  return ObjC.unwrap($(path).stringByStandardizingPath);
+}
+
+function documentPath(doc) {
+  try {
+    return normalizePath(doc.file().toString());
+  } catch (e) {
+    return null;
+  }
+}
+
+function findOpenDocument(Numbers, filePath) {
+  const targetPath = normalizePath(filePath);
+  const openDocs = Numbers.documents();
+
+  for (let i = 0; i < openDocs.length; i++) {
+    if (documentPath(openDocs[i]) === targetPath) {
+      return openDocs[i];
+    }
+  }
+
+  return null;
+}
+
+function openDocument(Numbers, filePath) {
+  const targetPath = normalizePath(filePath);
+  const existingDoc = findOpenDocument(Numbers, targetPath);
+
+  if (existingDoc) {
+    return { doc: existingDoc, wasOpen: true };
+  }
+
+  Numbers.open(Path(targetPath));
+
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const openedDoc = findOpenDocument(Numbers, targetPath);
+    if (openedDoc) {
+      return { doc: openedDoc, wasOpen: false };
+    }
+    delay(0.1);
+  }
+
+  throw new Error("Document not found after opening: " + filePath);
+}
+
 function run(argv) {
   const filePath = argv[0];
   if (!filePath) {
@@ -17,22 +65,9 @@ function run(argv) {
   let wasOpen = false;
 
   try {
-    // Check if document is already open
-    const openDocs = Numbers.documents();
-    for (let i = 0; i < openDocs.length; i++) {
-      try {
-        if (openDocs[i].file().toString().includes(filePath.replace(/.*\//, ''))) {
-          doc = openDocs[i];
-          wasOpen = true;
-          break;
-        }
-      } catch (e) {}
-    }
-
-    if (!doc) {
-      Numbers.open(Path(filePath));
-      doc = Numbers.documents[0];
-    }
+    const opened = openDocument(Numbers, filePath);
+    doc = opened.doc;
+    wasOpen = opened.wasOpen;
 
     const result = { file: filePath, sheets: [] };
 
@@ -56,16 +91,13 @@ function run(argv) {
       result.sheets.push(sheetInfo);
     }
 
-    if (!wasOpen) {
-      doc.close({ saving: "no" });
-    }
-
     return JSON.stringify(result, null, 2);
 
   } catch (e) {
+    return JSON.stringify({ error: e.message });
+  } finally {
     try {
       if (doc && !wasOpen) doc.close({ saving: "no" });
     } catch (e2) {}
-    return JSON.stringify({ error: e.message });
   }
 }

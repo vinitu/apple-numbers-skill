@@ -22,6 +22,20 @@
 //   ]
 // }
 
+function tableColumnCount(headers, rows) {
+  let totalCols = Array.isArray(headers) ? headers.length : 0;
+
+  if (Array.isArray(rows)) {
+    for (let i = 0; i < rows.length; i++) {
+      if (Array.isArray(rows[i]) && rows[i].length > totalCols) {
+        totalCols = rows[i].length;
+      }
+    }
+  }
+
+  return Math.max(totalCols, 1);
+}
+
 function run(argv) {
   const filePath = argv[0];
   const jsonStr = argv[1];
@@ -30,18 +44,26 @@ function run(argv) {
     return JSON.stringify({ error: "Usage: create-numbers.js <file-path> [json]" });
   }
 
+  let spec = null;
+  if (jsonStr) {
+    try {
+      spec = JSON.parse(jsonStr);
+    } catch (e) {
+      return JSON.stringify({ error: "Invalid JSON: " + e.message });
+    }
+  }
+
   const Numbers = Application("Numbers");
   const app = Application.currentApplication();
   app.includeStandardAdditions = true;
+  let doc;
 
   try {
     // Create new document
-    const doc = Numbers.Document().make();
+    doc = Numbers.Document().make();
 
-    if (jsonStr) {
-      const spec = JSON.parse(jsonStr);
-
-      if (spec.sheets && spec.sheets.length > 0) {
+    if (spec) {
+      if (Array.isArray(spec.sheets) && spec.sheets.length > 0) {
         for (let s = 0; s < spec.sheets.length; s++) {
           const sheetSpec = spec.sheets[s];
 
@@ -60,7 +82,7 @@ function run(argv) {
             sheet.name = sheetSpec.name;
           }
 
-          if (sheetSpec.tables) {
+          if (Array.isArray(sheetSpec.tables)) {
             for (let t = 0; t < sheetSpec.tables.length; t++) {
               const tableSpec = sheetSpec.tables[t];
               let table;
@@ -77,24 +99,35 @@ function run(argv) {
                 table.name = tableSpec.name;
               }
 
-              const headers = tableSpec.headers || [];
-              const rows = tableSpec.rows || [];
-              const totalRows = 1 + rows.length; // header + data
-              const totalCols = headers.length || (rows[0] ? rows[0].length : 1);
+              const headers = Array.isArray(tableSpec.headers) ? tableSpec.headers : [];
+              const rows = Array.isArray(tableSpec.rows) ? tableSpec.rows : [];
+              const hasHeaders = headers.length > 0;
+              const totalRows = Math.max((hasHeaders ? 1 : 0) + rows.length, 1);
+              const totalCols = tableColumnCount(headers, rows);
+              const maxHeaderColumns = Math.max(totalCols - 1, 0);
 
-              // Resize table
-              table.rowCount = totalRows;
+              // Numbers cannot keep one header column on a one-column table.
+              if (table.headerColumnCount() > maxHeaderColumns) {
+                table.headerColumnCount = maxHeaderColumns;
+              }
+
+              table.headerRowCount = hasHeaders ? 1 : 0;
               table.columnCount = totalCols;
+              table.rowCount = totalRows;
 
               // Write headers
-              for (let c = 0; c < headers.length; c++) {
-                table.cells[c].value = headers[c];
+              if (hasHeaders) {
+                for (let c = 0; c < headers.length; c++) {
+                  table.cells[c].value = headers[c];
+                }
               }
 
               // Write data rows
+              const dataStartRow = hasHeaders ? 1 : 0;
               for (let r = 0; r < rows.length; r++) {
+                if (!Array.isArray(rows[r])) continue;
                 for (let c = 0; c < rows[r].length; c++) {
-                  table.cells[(r + 1) * totalCols + c].value = rows[r][c];
+                  table.cells[(r + dataStartRow) * totalCols + c].value = rows[r][c];
                 }
               }
             }
@@ -106,11 +139,14 @@ function run(argv) {
     // Save to specified path
     const saveFile = Path(filePath);
     doc.save({ in: saveFile });
-    doc.close();
 
     return JSON.stringify({ success: true, file: filePath });
 
   } catch (e) {
     return JSON.stringify({ error: e.message });
+  } finally {
+    try {
+      if (doc) doc.close({ saving: "no" });
+    } catch (e2) {}
   }
 }
