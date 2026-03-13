@@ -1,0 +1,126 @@
+use framework "Foundation"
+use scripting additions
+
+property NSString : a reference to current application's NSString
+property NSJSONSerialization : a reference to current application's NSJSONSerialization
+property NSUTF8StringEncoding : a reference to current application's NSUTF8StringEncoding
+property NSFileManager : a reference to current application's NSFileManager
+
+on run argv
+    set resultPayload to missing value
+    set errorMessage to missing value
+    set docRef to missing value
+    set wasOpen to false
+
+    try
+        if (count of argv) is not 1 then error "Usage: osascript scripts/document/structure.applescript <file-path>"
+
+        set inputPath to my standardizePath(item 1 of argv)
+        set {docRef, wasOpen} to my openDocument(inputPath)
+        set resultPayload to {|file|:inputPath, |sheets|:my readStructure(docRef)}
+    on error errMsg number errNum
+        set errorMessage to my formatError(errMsg)
+    end try
+
+    my closeDocumentIfNeeded(docRef, wasOpen)
+
+    if errorMessage is not missing value then return my encodeJson({|error|:errorMessage})
+    return my encodeJson(resultPayload)
+end run
+
+on readStructure(docRef)
+    tell application "Numbers"
+        set sheetRefs to every sheet of docRef
+    end tell
+
+    set sheetPayloads to {}
+    repeat with sheetRef in sheetRefs
+        tell application "Numbers"
+            set sheetName to name of contents of sheetRef
+            set tableRefs to every table of contents of sheetRef
+        end tell
+        set tablePayloads to {}
+        repeat with tableRef in tableRefs
+            set end of tablePayloads to my structureForTable(contents of tableRef)
+        end repeat
+        set end of sheetPayloads to {|name|:sheetName, |tables|:tablePayloads}
+    end repeat
+
+    return sheetPayloads
+end readStructure
+
+on structureForTable(tableRef)
+    tell application "Numbers"
+        set tableName to name of tableRef
+        set rowCountValue to row count of tableRef
+        set columnCountValue to column count of tableRef
+        set headerRowCountValue to header row count of tableRef
+        set headerColumnCountValue to header column count of tableRef
+    end tell
+
+    return {|name|:tableName, |rowCount|:rowCountValue, |columnCount|:columnCountValue, |headerRowCount|:headerRowCountValue, |headerColumnCount|:headerColumnCountValue}
+end structureForTable
+
+on openDocument(inputPath)
+    set targetPath to my canonicalExistingPath(inputPath)
+    set existingDoc to my findOpenDocument(targetPath)
+    if existingDoc is not missing value then return {existingDoc, true}
+
+    tell application "Numbers"
+        open POSIX file targetPath
+    end tell
+
+    repeat 20 times
+        delay 0.1
+        set openedDoc to my findOpenDocument(targetPath)
+        if openedDoc is not missing value then return {openedDoc, false}
+    end repeat
+
+    error "Document not found after opening: " & inputPath
+end openDocument
+
+on findOpenDocument(targetPath)
+    tell application "Numbers"
+        repeat with docRef in every document
+            try
+                if (POSIX path of (file of contents of docRef as alias)) is targetPath then return contents of docRef
+            end try
+        end repeat
+    end tell
+    return missing value
+end findOpenDocument
+
+on closeDocumentIfNeeded(docRef, wasOpen)
+    if docRef is missing value then return
+    if wasOpen then return
+    try
+        tell application "Numbers"
+            close docRef saving no
+        end tell
+    end try
+end closeDocumentIfNeeded
+
+on canonicalExistingPath(pathText)
+    set standardizedPath to my standardizePath(pathText)
+    if my pathExists(standardizedPath) is false then error "File not found: " & standardizedPath
+    return POSIX path of (POSIX file standardizedPath as alias)
+end canonicalExistingPath
+
+on encodeJson(payloadValue)
+    set {jsonData, errorObject} to NSJSONSerialization's dataWithJSONObject:payloadValue options:0 |error|:(reference)
+    if jsonData is missing value then error (errorObject's localizedDescription() as text)
+    return (NSString's alloc()'s initWithData:jsonData encoding:NSUTF8StringEncoding) as text
+end encodeJson
+
+on standardizePath(pathText)
+    return ((NSString's stringWithString:pathText)'s stringByStandardizingPath()) as text
+end standardizePath
+
+on pathExists(pathText)
+    return (NSFileManager's defaultManager()'s fileExistsAtPath:pathText) as boolean
+end pathExists
+
+on formatError(errMsg)
+    if errMsg is missing value then return "Unknown error"
+    return errMsg as text
+end formatError

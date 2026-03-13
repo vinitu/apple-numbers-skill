@@ -1,107 +1,104 @@
-# apple-numbers-skill
+# Apple Numbers AppleScript Skill
 
-AI agent skill for reading and editing Apple Numbers documents on macOS.
+This repo stores a Codex skill for Apple Numbers.app on macOS.
 
-Requires macOS and Apple Numbers.app.
+It provides JSON-first AppleScript entrypoints for document and table automation.
 
 ## Installation
+
+Install with `skills.sh`:
+
+```bash
+skills.sh add vinitu/apple-numbers-skill
+```
+
+If you use the npm installer instead:
 
 ```bash
 npx skills add vinitu/apple-numbers-skill
 ```
 
-## What it does
+## Scope
 
-This skill gives AI agents (Claude Code, Cursor, Copilot, etc.) the ability to:
+- Create a new `.numbers` document from a JSON spec.
+- Read document structure and table data as JSON.
+- Update cells with explicit `row` and `col` coordinates.
+- Append one row or many rows to an existing table.
+- Reuse an already open document without closing the user's window.
 
-- **Read** data from `.numbers` files (all sheets/tables or specific ones)
-- **Write** data to existing `.numbers` files (single cell, batch, or append rows)
-- **Create** new `.numbers` spreadsheets with predefined structure
-- **List** the structure of a spreadsheet (sheets, tables, dimensions)
+## Tested Base
 
-## How it works
+- macOS `26.3.1`
+- Numbers `15.1`
 
-Uses JXA (JavaScript for Automation) via `osascript` to interact with Apple Numbers through its scripting bridge. No external dependencies required — works with any macOS system that has Numbers installed.
+## Repo Layout
 
-## Requirements
+- `AGENTS.md` - repo rules for future agents.
+- `SKILL.md` - the full skill workflow and examples.
+- `Makefile` - helper commands for dictionary dump, compile, and tests.
+- `scripts/document/` - file-level AppleScript entrypoints.
+- `scripts/table/` - table-level AppleScript entrypoints.
+- `tests/` - dictionary and live smoke checks for Numbers.app.
 
-- macOS
-- Apple Numbers (included with macOS)
+## Command Surface
 
-## Behavior and Limitations
+Document commands:
 
-Apple Numbers is a GUI application. These scripts automate Numbers through `osascript` and JXA, but they do not provide a fully headless backend mode.
+- `scripts/document/create.applescript`
+- `scripts/document/read.applescript`
+- `scripts/document/structure.applescript`
 
-In normal usage, Numbers does not need to become the frontmost app, but macOS may still launch the application while a file is being processed.
+Table commands:
 
-## Permissions
+- `scripts/table/read.applescript`
+- `scripts/table/write.applescript`
+- `scripts/table/append.applescript`
 
-On first run, macOS may ask for Automation permission so your terminal, editor, or AI agent can control Numbers.app.
+## How To Use
 
-If permission is denied, script execution may fail or appear to hang until access is granted in System Settings.
-
-## Password-Protected Files
-
-Password-protected `.numbers` files are not explicitly supported by this skill today.
-
-Apple Numbers can protect spreadsheets with a password, but the current scripts do not accept a password argument and do not pass one when opening a document.
-
-Because of that, a locked spreadsheet may trigger a password prompt in Numbers or fail to open in unattended automation.
-
-This skill is most reliable with:
-- unprotected spreadsheets;
-- spreadsheets that are already open and unlocked in Numbers;
-- spreadsheets that macOS can already unlock through saved credentials.
-
-## Scripts
-
-| Script | Purpose |
-|--------|---------|
-| `scripts/read-numbers.js` | Read cell data from a spreadsheet |
-| `scripts/write-numbers.js` | Write/update cells in a spreadsheet |
-| `scripts/create-numbers.js` | Create a new spreadsheet |
-| `scripts/list-structure.js` | List sheets, tables, and dimensions |
-| `scripts/read-numbers.sh` | Shell wrapper for reading |
-
-## Write Coordinates
-
-`row` and `col` in write operations are 0-based.
-
-For example, `row: 0, col: 0` targets the top-left cell of the table.
-
-## Append Rows
-
-`write-numbers.js` also supports appending rows to an existing table.
-
-Append one row:
+Create a new spreadsheet:
 
 ```bash
-osascript -l JavaScript scripts/write-numbers.js "/path/to/file.numbers" '{"sheet":"Stocks","table":"Table 1","appendRow":["NVDA","NVIDIA Corporation"]}'
+osascript scripts/document/create.applescript "/path/to/file.numbers" '{"sheets":[{"name":"Data","tables":[{"name":"Table 1","headers":["Ticker","Name"],"rows":[["AAPL","Apple"]]}]}]}'
 ```
 
-Append multiple rows:
+Read a document:
 
 ```bash
-osascript -l JavaScript scripts/write-numbers.js "/path/to/file.numbers" '{"sheet":"Stocks","table":"Table 1","appendRows":[["AVGO","Broadcom Inc."],["TSM","Taiwan Semiconductor Manufacturing"]]}'
+osascript scripts/document/read.applescript "/path/to/file.numbers"
 ```
 
-Notes:
-- appended values are written from the first column of the new row;
-- rows shorter than the table width leave the remaining cells blank;
-- rows wider than the table return an error.
+Read document structure:
 
-## Document Lifecycle
+```bash
+osascript scripts/document/structure.applescript "/path/to/file.numbers"
+```
 
-If a document is already open in Numbers, the scripts try to reuse that open document.
+Read one table:
 
-If a read-only script opens the document itself, it closes the document afterwards to avoid leaving extra windows or file locks behind.
+```bash
+osascript scripts/table/read.applescript "/path/to/file.numbers" "Data" "Table 1"
+```
 
-## Performance Notes
+Write cells:
 
-Reading a full sheet or table can be slow for larger spreadsheets because values are fetched cell-by-cell through the Numbers scripting bridge.
+```bash
+osascript scripts/table/write.applescript "/path/to/file.numbers" "Data" "Table 1" '[{"row":0,"col":0,"value":"Symbol"},{"row":1,"col":1,"value":"Apple Inc."}]'
+```
 
-When possible, target a specific sheet and table instead of reading the whole document.
+Append rows:
 
-## License
+```bash
+osascript scripts/table/append.applescript "/path/to/file.numbers" "Data" "Table 1" '[["MSFT","Microsoft"],["NVDA","NVIDIA"]]'
+```
 
-MIT
+For the full command set and examples, use `SKILL.md`.
+
+## Important Limits
+
+- Numbers is a GUI app. Automation may depend on macOS Automation permissions and app state.
+- Password-protected `.numbers` files are not supported.
+- `scripts/document/create.applescript` keeps the JSON spec shape from the earlier JXA version, but current AppleScript support in Numbers `15.1` can only create one sheet and one table in that sheet. Larger specs return a structured error.
+- `row` and `col` in table write commands are 0-based.
+- Table-level commands require explicit `sheet` and `table` names.
+- Read-only commands close the document only when they opened it themselves.

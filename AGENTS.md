@@ -1,53 +1,44 @@
-# AGENTS.md
+# Repo Guide
 
-## Purpose
+This repo stores a Codex skill for Apple Numbers.app on macOS.
 
-This repository provides an AI skill for working with Apple Numbers files on macOS through JXA scripts executed with `osascript`.
+## Goal
 
-Primary goals:
-- keep the scripts dependency-free;
-- preserve predictable JSON I/O for agents;
-- avoid leaving Numbers documents open or unexpectedly modified.
+- Keep the AppleScript command surface accurate to the live Numbers dictionary.
+- Keep JSON I/O stable for agent integrations.
+- Avoid breaking user document state when a file is already open in Numbers.
 
-## Repository Layout
+## Source Of Truth
 
-- `SKILL.md`: the skill contract and usage instructions for agents.
-- `README.md`: public project overview and installation notes.
-- `.github/workflows/ci-pr.yml`: PR validation, auto-merge, version bump, tag, and release flow.
-- `.github/workflows/ci-main.yml`: main-branch validation, patch tag, and release flow.
-- `scripts/read-numbers.js`: reads spreadsheet data and returns JSON.
-- `scripts/write-numbers.js`: writes one or more cell updates.
-- `scripts/create-numbers.js`: creates a new spreadsheet from JSON spec.
-- `scripts/list-structure.js`: lists sheets, tables, and dimensions.
-- `scripts/read-numbers.sh`: thin shell wrapper around the read script.
+- `make dictionary-numbers`
+- `make dictionary-standard`
+- Live checks with `osascript`
 
-## Working Rules
+The supported command surface lives in `SKILL.md`, this file, and the scripts in `scripts/`.
 
-- Keep this repo macOS-first. The scripts depend on Apple Numbers and `osascript`; do not add cross-platform abstractions unless explicitly requested.
-- Prefer small, direct JXA changes over adding external runtimes, packages, or build steps.
-- Preserve CLI behavior. Existing script entrypoints and argument shapes should remain stable unless the task explicitly requires a breaking change.
-- Preserve JSON output as the integration boundary. Success and error responses should stay machine-readable.
-- If you change script behavior, update both `SKILL.md` and `README.md` when usage, arguments, or examples change.
-- Respect document lifecycle handling. When opening a Numbers document in automation, close it when appropriate and avoid overwriting user state accidentally.
+## Repo Layout
 
-## Script Conventions
+- `SKILL.md` is the main skill workflow.
+- `README.md` is the repo overview for humans.
+- `Makefile` stores dictionary, compile, and test commands.
+- `scripts/document/` stores file-level AppleScript entrypoints.
+- `scripts/table/` stores table-level AppleScript entrypoints.
+- `tests/` stores dictionary and live smoke checks for Numbers.app.
 
-- `read-numbers.js` and `list-structure.js` should be read-only operations.
-- `write-numbers.js` and `create-numbers.js` must fail clearly on invalid input and should not silently change interface semantics.
-- Keep row/column indexing conventions explicit in comments and docs. Current write operations use 0-based `row`/`col`.
-- Prefer returning structured errors like `{"error":"..."}` instead of plain text.
-- Avoid broad refactors unless they reduce risk around Numbers automation behavior.
+## Editing Rules
+
+- Keep docs in simple English.
+- Update `SKILL.md` when command coverage or CLI examples change.
+- Do not claim support for a Numbers action unless it is in the dictionary or verified with `osascript`.
+- Keep JSON output machine-readable. Return structured errors like `{"error":"..."}`.
+- Keep table write coordinates explicit. `row` and `col` are 0-based.
+- Preserve document lifecycle handling. Read-only scripts must close documents only when they opened them.
+- Treat spreadsheet data as real user data.
+- Call out AppleScript limits clearly. Creating more than one sheet or more than one table per sheet is not supported by the current AppleScript implementation on Numbers `15.1`.
 
 ## Validation
 
-There is no formal test suite in this repo today. After making changes:
-- run the relevant script with `osascript -l JavaScript ...` if the environment has Numbers available;
-- at minimum, syntax-check shell wrappers and re-read examples in `SKILL.md` and `README.md` for consistency;
-- if you cannot run Numbers-dependent validation, state that clearly.
-
-## Common Pitfalls
-
-- Apple Numbers scripting can behave differently when a document is already open; keep `wasOpen` logic intact unless you are deliberately redesigning it.
-- File paths may point to `.numbers` packages; do not assume plain files only.
-- JSON passed through shell commands is quoting-sensitive. Keep examples copy-pastable.
-- JXA indexing and Numbers table cell access are easy to break with off-by-one mistakes; verify row/column math carefully.
+- Run `make compile`.
+- Run `make test-dictionary`.
+- Run `make test-smoke` when Numbers.app and Automation permissions are available.
+- If a live check is blocked by TCC permissions or app state, document the block clearly.

@@ -15,40 +15,22 @@ concurrency:
 
 jobs:
   lint:
-    name: Lint JXA & Shell
+    name: Lint AppleScript & Shell
     runs-on: macos-latest
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Check JXA syntax
+      - name: Check AppleScript syntax
         run: |
           set -euo pipefail
-          # JXA scripts use ObjC bridge globals (ObjC, $, Application, delay, Path)
-          # that don't exist in standard JS. We use Node's --check with a shim
-          # that declares these globals so the parser can validate syntax.
-          shim='var ObjC={import:function(){}};var $=function(){return{stringByStandardizingPath:""}};var Application=function(){return{currentApplication:function(){return{includeStandardAdditions:true}},documents:function(){return[]},open:function(){},Document:function(){return{make:function(){return{}}}},Sheet:function(){return{}},Table:function(){return{}}}};var delay=function(){};var Path=function(){return""};'
-          errors=0
-          for f in scripts/*.js; do
-            echo "Checking $f ..."
-            # Strip shebang line, prepend shim, check syntax with Node
-            content=$(tail -n +2 "$f")
-            if ! node --check <(printf '%s\n%s' "$shim" "$content") 2>&1; then
-              echo "::error file=$f::Syntax error in $f"
-              errors=$((errors + 1))
-            fi
-          done
-          if [ "$errors" -gt 0 ]; then
-            echo "$errors file(s) had syntax errors"
-            exit 1
-          fi
-          echo "All JXA files passed syntax check"
+          make compile
 
       - name: Check shell scripts
         run: |
           set -euo pipefail
           if command -v shellcheck >/dev/null 2>&1; then
-            find scripts -name '*.sh' -exec shellcheck {} +
+            find scripts tests -name '*.sh' -exec shellcheck {} +
           else
             echo "shellcheck not available, skipping"
           fi
@@ -69,6 +51,11 @@ jobs:
             exit 1
           fi
           echo "SKILL.md frontmatter is valid"
+
+      - name: Run dictionary contract
+        run: |
+          set -euo pipefail
+          bash tests/dictionary_contract.sh
 
   calculate_tag:
     name: Compute next tag
